@@ -4,7 +4,6 @@ rm(list=ls())
 
 source("R/cwac_functions.r")
 
-library(readxl)
 library(tidyverse)
 
 load("data/robertsDB.RData")
@@ -19,10 +18,12 @@ owl.jags <- jags_analysis(african_grass_owl, 'north%20west', 'Barberspan', 1)
 cormorant <- barberspan.res.counts[,c("47","startDate","season")]
 comorant.jags <- jags_analysis(cormorant, 'north%20west', 'Barberspan', 1)
 
-summary(comorant.jags)
 comorant.jags
 
 traceplot(comorant.jags, parameters = "sig.alpha")
+
+# plot cormorant jags output
+ts_jag_plot(comorant.jags, cormorant, 1)
 
 # Applying "migrant" model to cormorant species -----------------------------
 comorant.jags2 <- jags_analysis(cormorant, 'north%20west', 'Barberspan', 2)
