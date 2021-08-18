@@ -6,6 +6,7 @@ library(dplyr)
 library(jagsUI)
 library(gridExtra)
 library(tidyr)
+library(cowplot)
 
 source("R/cwac api data download functions.r")
 
@@ -83,126 +84,53 @@ species_counts <- function(province, location, species){
   }
   # order data dframe by date
   spec_counts <- cbind(recs, cards$startDate, cards$Season)
-  colnames(spec_counts) <- c(paste("X",species, sep=''), "startDate", "season")
+  colnames(spec_counts) <- c(paste(species, sep=''), "startDate", "season")
   spec_counts$startDate <- year(spec_counts$startDate)
   
   # complete the data frame to include all years
   #$startDate <- year(bird_df$startDate)
   
   spec_counts <- spec_counts[-which(spec_counts$season == 'O'),]
-  spec_counts <- spec_counts %>% complete(startDate = min(startDate):max(startDate), nesting(season))
+  spec_counts <- spec_counts %>% tidyr::complete(startDate = min(startDate):max(startDate), nesting(season))
   
   
   return(dplyr::arrange(spec_counts, startDate))
 }
 
 #### JAGS method to run analysis on the 4 different species types ####
-jags_analysis <- function(bird_df, province, site, spec_type){
-  # spec_type: 1. common resident
-  #            2. common migrant
-  #            3. rare resident
-  #            4. rare migrant
+jags_analysis <- function(bird_df){
   
-  # complete the data frame to include all years
-  #bird_df$startDate <- year(bird_df$startDate)
-  
-  #bird_df <- bird_df[-which(bird_df$season == 'O'),]
+  # convert to log counts for jags
   bird_df <- bird_df %>% 
     mutate(logCounts = log(bird_df[,1] + 1))
     
-    #complete(startDate = min(startDate):max(startDate), nesting(season))
+  # get summer and winter count lengths
+  summer <- bird_df[which(bird_df$season == 'S'),]
+  winter <- bird_df[which(bird_df$season == 'W'),]
+    
+  # data list for jags analysis
+  data_jags <- list(summer = summer$logCounts,
+                    winter = winter$logCounts,
+                    N = nrow(bird_df)/2)
+    
+  # variables to be tracked
+  params <- c('mu_t', 'mu_wt', 'lambda', 'beta', 'winter', 'summer')
+    
+  # running the model
+  jag.mod <- jags(data = data_jags,
+                  parameters.to.save = params,
+                  model.file = 'JAGS/cwac_ssm_migrant.jags',
+                  n.chains = 3,
+                  n.iter = 10000,
+                  n.burnin = 5000,
+                  n.thin = 1,
+                  modules = c('glm','lecuyer', 'dic'),
+                  factories = NULL,
+                  parallel = T,
+                  n.cores = 3,
+                  DIC = TRUE,
+                  verbose = TRUE)
   
-  if(spec_type == 1){
-    
-    # encode summer and winter to 1 and 2 respectively
-    bird_df$season[bird_df$season == 'S'] <- 1
-    bird_df$season[bird_df$season == 'W'] <- 2
-    
-    # removing out of season counts
-    #bird_df <- bird_df[-which(bird_df$season == 'O'),]
-    
-    # change NAs to 0s
-    #spec_counts <- bird_df[,1]
-    #spec_counts[is.na(spec_counts)] <- 0 
-    
-    # get length of counts
-    n <- nrow(bird_df)
-    
-    # log counts for log scale in jags
-    #spec_counts <- log(spec_counts)
-    #spec_counts[is.infinite(spec_counts)] <- 0
-    
-    # Inits function
-    mod.inits <- function(){
-      list ("mu_t[1]" = runif(1, log(1),log(1500)),
-            "beta[1]" = runif(1, log(1),log(100)),
-            "tau.w2" = runif(1, log(1),log(5)),
-            "tau.eps2" = runif(1, log(1),log(5)),
-            "tau.alpha" = runif(1, log(1),log(5)))
-      }
-    
-    # data list for jags analysis
-    data_jags <- list(y=bird_df$logCounts, n=n, x=as.numeric(bird_df$season))
-    
-    # variables to be tracked
-    params <- c("mu_t", "sig.w2", "sig.eps2", "sig.alpha", "beta", "y")
-    
-    # running the model
-    jag.mod <- jags(data = data_jags,
-                    inits = mod.inits,
-                    parameters.to.save = params,
-                    model.file = 'JAGS/cwac_com_resident.jags',
-                    n.chains = 3,
-                    n.iter = 10000,
-                    n.burnin = 5000,
-                    n.thin = 1,
-                    modules = c('glm','lecuyer', 'dic'),
-                    factories = NULL,
-                    parallel = T,
-                    n.cores = 3,
-                    DIC = TRUE,
-                    verbose = TRUE)
-    
-  }else if(spec_type == 2){
-    
-    # change NAs to 0s
-    #bird_df[is.na(bird_df)] <- 0
-    
-    # log counts for log scale in jags
-    #bird_df <- mutate(bird_df, logCounts = log(bird_df[,1] + 1))
-    #bird_df$logCounts[is.infinite(bird_df$logCounts)] <- 0
-    
-    # get summer and winter count lengths
-    summer <- bird_df[which(bird_df$season == 'S'),]
-    winter <- bird_df[which(bird_df$season == 'W'),]
-    #slength <- nrow(summer)
-    #wlength <- nrow(winter)
-    
-    # data list for jags analysis
-    data_jags <- list(summer = summer$logCounts,
-                      winter = winter$logCounts,
-                      #slength = slength,
-                      #wlength = wlength,
-                      N = nrow(bird_df)/2)
-    
-    # variables to be tracked
-    params <- c('mu_t', 'mu_wt', "lambda", 'beta', 'winter', 'summer')
-    
-    # running the model
-    jag.mod <- jags(data = data_jags,
-                    parameters.to.save = params,
-                    model.file = 'JAGS/cwac_ssm_migrant.jags',
-                    n.chains = 3,
-                    n.iter = 10000,
-                    n.burnin = 5000,
-                    n.thin = 1,
-                    modules = c('glm','lecuyer', 'dic'),
-                    factories = NULL,
-                    parallel = T,
-                    n.cores = 3,
-                    DIC = TRUE,
-                    verbose = TRUE)
-  }
   
   return(jag.mod)
 }
@@ -210,23 +138,9 @@ jags_analysis <- function(bird_df, province, site, spec_type){
 
 ts_jag_plot <- function(jag.model, bird_df, spec_type){
   
-  # complete the data frame to include all years
-  #bird_df$startDate <- year(bird_df$startDate)
-  
-  #bird_df <- bird_df[-which(bird_df$season == 'O'),]
   bird_df <- mutate(bird_df, logCounts = log(bird_df[,1] + 1))
   
   if(spec_type == 1){
-    
-    # removing all out of season counts
-    #bird_df <- bird_df[-which(bird_df$season == 'O'),]
-    
-    # change NAs to 0s
-    #bird_df[is.na(bird_df)] <- 0
-    
-    # log counts for log scale in jags
-    #bird_df[,1] <- log(bird_df[,1])
-    #bird_df[,1][is.infinite(bird_df[,1])] <- 0
     
     sEstimated <- jag.model$mean$mu_t
     sLower <- jag.model$q2.5$mu_t
@@ -253,22 +167,9 @@ ts_jag_plot <- function(jag.model, bird_df, spec_type){
       
       labs(x = "Year",
            y = "Population") +
-      facet_wrap(~ season, ncol = 1, )
+      facet_wrap(~ season, ncol = 1,)
   }
   else if(spec_type == 2){
-    
-    # change NAs to 0s
-    #bird_df[is.na(bird_df)] <- 0
-    
-    # log counts for log scale in jags
-    #bird_df <- bird_df %>% mutate(logCounts = log(bird_df[,1] + 1))
-    #bird_df[,1] <- log(bird_df[,1])
-    #bird_df$logCounts[is.infinite(bird_df$logCounts)] <- 0
-    
-    #jag.summary <- summary(jag.model)
-    #est.pop <- jag.summary[,"Median"]
-    #lower95 <- jag.summary[,"Lower95"]
-    #upper95 <- jag.summary[,"Upper95"]
     
     sEstimated <- jag.model$mean$mu_t
     sLower <- jag.model$q2.5$mu_t
@@ -277,8 +178,6 @@ ts_jag_plot <- function(jag.model, bird_df, spec_type){
     # separating the summer and winter counts
     summer <- bird_df[which(bird_df$season == 'S'),]
     winter <- bird_df[which(bird_df$season == 'W'),]
-    #slength <- nrow(summer)
-    #wlength <- nrow(winter)
     
     # storing data in data frames
     summerdf <- data.frame(Year = summer$startDate,
@@ -299,25 +198,6 @@ ts_jag_plot <- function(jag.model, bird_df, spec_type){
                            lower = wLower,
                            upper = wUpper)
     
-    # if (slength < wlength) {
-    #   winterdf <- data.frame(Year = winter$startDate, 
-    #                          lambda = est.pop[(slength+((wlength-slength) + 1)):length(est.pop)],
-    #                          s_estimated = est.pop[1:wlength],
-    #                          w_counts = winter$logCounts,
-    #                          lower = lower95[(slength+((wlength-slength) + 1)):length(est.pop)],
-    #                          upper = upper95[(slength+((wlength-slength) + 1)):length(est.pop)])
-    # }
-    # else{
-    #   winterdf <- data.frame(Year = winter$startDate, 
-    #                          lambda = est.pop[(slength + 1):length(est.pop)],
-    #                          s_estimated = est.pop[1:wlength],
-    #                          w_counts = winter$logCounts,
-    #                          lower = lower95[(slength + 1):length(est.pop)],
-    #                          upper = upper95[(slength + 1):length(est.pop)])
-    # }
-    
-    #winterdf <- winterdf %>% 
-    #mutate(w_estimated = s_estimated + lambda)
     
     summerdf <- arrange(summerdf, Year)
     winterdf <- arrange(winterdf, Year)
@@ -338,16 +218,6 @@ ts_jag_plot <- function(jag.model, bird_df, spec_type){
             axis.title.y = element_blank()) 
     
       
-      # scale_color_manual(name = "Legend",
-      #                    breaks = c("State process (s)", "Counts(s)"),
-      #                    values = c("State process (s)" = "grey1", "Counts(s)" = "red"))
-      
-      # labs(x = "Year",
-      #      y = "Population") 
-      
-       # scale_color_identity(guide = "Legend",
-       #                      name = "Legend",
-       #                      labels = c("State process (s)", "Counts(s)")) 
       
     # winter
     winter_plot <- ggplot(winterdf, aes(x = Year)) +
@@ -362,20 +232,154 @@ ts_jag_plot <- function(jag.model, bird_df, spec_type){
       theme(axis.title.x=element_blank(),
             axis.title.y = element_blank())
       
-      # labs(x = "Year",
-      #      y = "Population") 
-      
-      # scale_color_identity(guide = "legend",
-      #                      name = "Legend",
-      #                      labels = c("State process (w)", "Counts (w)")) 
     
-    #plot_grid(summer_plot, winter_plot, row = 2, ncol = 1)
     grid.arrange(summer_plot, winter_plot,
                  nrow = 2, heights = c(1/2, 1/2),
                  left = "Log Population",
                  bottom = "Year")
-                 #top = plottitle)
     
   }
 }
 
+#### hill numbers jags test ####
+# inputs: group of species counts, season vector
+hill_nums <- function(groupdf){
+  
+  # TEST VARS
+  #groupdf <- counts
+  
+  # calculate the number of species in the group
+  specnum <- ncol(groupdf[,-c(ncol(groupdf), ncol(groupdf)-1)])
+  
+  # extract the species from the group df according to season
+  summer <- groupdf[which(groupdf$season == 'S'), 1:specnum]
+  winter <- groupdf[which(groupdf$season == 'W'), 1:specnum]
+  
+  # place species in a matrix
+  summer <- log(as.matrix(summer))
+  winter <- log(as.matrix(winter))
+  
+  # data list for jags analysis
+  data_jags <- list("numspecs" = specnum,
+                    "N" = nrow(groupdf)/2,
+                    "summer" = summer,
+                    "winter" = winter)
+  
+  # variables to be tracked
+  params <- c("mu_t", "mu_wt", "sig.w2", "sig.eps2",
+              "sig.alpha", "beta", "lambda",
+              "summer_props", "winter_props",
+              "summer_n0", "winter_n0",
+              "summer_n1", "winter_n1",
+              "summer_n2", "winter_n2")
+  
+  # run the model
+  jag.mod <- jags(data = data_jags,
+                  parameters.to.save = params,
+                  model.file = 'JAGS/hillnum.jags',
+                  n.chains = 3,
+                  n.iter = 10000,
+                  n.burnin = 5000,
+                  n.thin = 1,
+                  #modules = c('glm','lecuyer', 'dic'),
+                  modules = NULL,
+                  factories = NULL,
+                  parallel = T,
+                  n.cores = 3,
+                  DIC = TRUE,
+                  verbose = TRUE)
+  
+  return(jag.mod)
+}
+
+plot_hills <- function(jag.mod, years){
+  
+  # plotting shannons equitability instead of the actual shannons index
+  # using exp for effective number of species (true diversity value)
+  # shannons equ for summer
+  numSpecs <- log(ncol(jag.mod$mean$mu_t))
+  sn1_df <- data.frame(years = years,
+                      estimated = jag.mod$mean$summer_n1/numSpecs,
+                      lower = jag.mod$q2.5$summer_n1/numSpecs,
+                      upper = jag.mod$q97.5$summer_n1/numSpecs,
+                      h = exp(jag.mod$mean$summer_n1),
+                      lowerh = exp(jag.mod$q2.5$summer_n1),
+                      upperh = exp(jag.mod$q97.5$summer_n1))
+  
+  # shannons equ for winter
+  wn1_df <- data.frame(years = years,
+                       estimated = jag.mod$mean$winter_n1/numSpecs,
+                       lower = jag.mod$q2.5$winter_n1/numSpecs,
+                       upper = jag.mod$q97.5$winter_n1/numSpecs,
+                       h = exp(jag.mod$mean$winter_n1),
+                       lowerh = exp(jag.mod$q2.5$winter_n1),
+                       upperh = exp(jag.mod$q97.5$winter_n1))
+  
+  
+  # plotting 1/Simpsons index for true diversity value
+  # simpsons index for summer
+  sn2_df <- data.frame(years = years,
+                      estimated = jag.mod$mean$summer_n2,
+                      lower = jag.mod$q2.5$summer_n2,
+                      upper = jag.mod$q97.5$summer_n2)
+  
+  # simpsons index for winter
+  wn2_df <- data.frame(years = years,
+                      estimated = jag.mod$mean$winter_n2,
+                      lower = jag.mod$q2.5$winter_n2,
+                      upper = jag.mod$q97.5$winter_n2)
+  
+  # create the plots
+  sn1_plot <- ggplot(sn1_df, aes(x = years)) +
+    
+    geom_ribbon(aes(ymin = lower, ymax = upper), fill = "gray80") +
+    geom_line(aes(y = estimated, color = "grey1"), lwd = 1, lty = 2) +
+    geom_line(aes(y = h, color = 'red'), lwd = 1, lty = 1) +
+    geom_line(aes(y = lowerh, colour = 'red'), lwd = 1, lty = 3) +
+    geom_line(aes(y = upperh, colour = 'red'), lwd = 1, lty = 3) +
+    
+    scale_color_identity(guide = "legend",
+                         name = "",
+                         labels = c("Equitability", "H")) +
+    
+    labs(title = "Shannons Index(S)")
+  
+  wn1_plot <- ggplot(wn1_df, aes(x = years)) +
+    
+    geom_ribbon(aes(ymin = lower, ymax = upper), fill = "gray80") +
+    geom_line(aes(y = estimated, color = "grey1"), lwd = 1, lty = 2) +
+    geom_line(aes(y = h, color = 'red'), lwd = 1, lty = 1) +
+    
+    geom_line(aes(y = lowerh, colour = 'red'), lwd = 1, lty = 3) +
+    geom_line(aes(y = upperh, colour = 'red'), lwd = 1, lty = 3) +
+    
+    scale_color_identity(guide = "legend",
+                         name = "",
+                         labels = c("Equitability", "H")) +
+    
+    labs(title = "Shannons Index (W)")
+  
+  sn2_plot <- ggplot(sn2_df, aes(x = years)) +
+    
+    geom_ribbon(aes(ymin = lower, ymax = upper), fill = "gray80") +
+    geom_line(aes(y = estimated, color = "grey1"), lwd = 1, lty = 2) +
+    labs(title = "Simpsons Index (S)")
+  
+  wn2_plot <- ggplot(wn2_df, aes(x = years)) +
+    
+    geom_ribbon(aes(ymin = lower, ymax = upper), fill = "gray80") +
+    geom_line(aes(y = estimated, color = "grey1"), lwd = 1, lty = 2) +
+    labs(title = "Simpsons Index (W)")
+  
+  return(plot_grid(sn1_plot, wn1_plot,
+            sn2_plot, wn2_plot,
+            ncol = 2, nrow = 2))
+  
+  
+  
+}
+
+# Testing methods
+#hill <- hill_nums(counts)
+
+#plot_hills(hill, unique(counts$startDate))
