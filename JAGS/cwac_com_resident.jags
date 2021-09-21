@@ -9,9 +9,8 @@ model{
   
   # priors for the categorical variables
   b[1] = 0 # summer
-  b[2] ~ dunif(log(1),log(1000)) # check average difference between summer and winter pop
+  b[2] ~ dunif(log(1),log(1000))
 
-  
   tau.w2 ~ dunif(log(1),log(10))
   tau.eps2 ~ dunif(log(1),log(10))
   tau.alpha ~ dunif(log(1),log(10))
