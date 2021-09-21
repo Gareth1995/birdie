@@ -11,11 +11,11 @@ library(cowplot)
 source("R/cwac api data download functions.r")
 
 # get all cards for a given site
-get_local_cards <- function(province, location){
+get_local_cards <- function(province, loc_code){
   sites <- get_cwac_sites(province = province)
-  if(length(sites$Loc_code[sites$Name==location]) != 0){
+  if(length(loc_code) != 0){
     
-    cards <- get_cwac_cards(site=sites$Loc_code[sites$Name==location])
+    cards <- get_cwac_cards(site=loc_code)
     cards$startDate <- as.Date(cards$startDate)
     
     return(cards)
@@ -26,10 +26,9 @@ get_local_cards <- function(province, location){
 }
 
 # Function that takes location code and extracts all bird species in that area
-get_local_species <- function(province, location){
+get_local_species <- function(province, loc_code){
   
   sites <- get_cwac_sites(province = province)
-  loc_code <- sites$Loc_code[sites$Name==location]
   
   url = paste0('http://api.adu.org.za/cwac/cards/single/list?locationcode=',loc_code)
   
@@ -62,11 +61,10 @@ get_local_species <- function(province, location){
   
 }
 
-
 # obtain counts of specified species in area of interest #
-species_counts <- function(province, location, species){
+species_counts <- function(province, loc_code, species){
   
-  cards <- get_local_cards(province, location)
+  cards <- get_local_cards(province, loc_code)
   
   # setting up the data frame to be populated
   recs <- data.frame(matrix(nrow=dim(cards)[1], ncol = length(species)))
@@ -87,12 +85,10 @@ species_counts <- function(province, location, species){
   colnames(spec_counts) <- c(paste(species, sep=''), "startDate", "season")
   spec_counts$startDate <- year(spec_counts$startDate)
   
-  # complete the data frame to include all years
-  #$startDate <- year(bird_df$startDate)
-  
-  spec_counts <- spec_counts[-which(spec_counts$season == 'O'),]
+  # fill in missing years
+  spec_counts <- spec_counts[-which(spec_counts$season == 'O' | spec_counts$season == ''),]
   spec_counts <- spec_counts %>% tidyr::complete(startDate = min(startDate):max(startDate), nesting(season))
-  
+  spec_counts <- spec_counts[, order(ncol(spec_counts):1)] # putting date and season at the end
   
   return(dplyr::arrange(spec_counts, startDate))
 }
@@ -102,7 +98,7 @@ jags_analysis <- function(bird_df){
   
   # convert to log counts for jags
   bird_df <- bird_df %>% 
-    mutate(logCounts = log(bird_df[,1] + 1))
+    mutate(logCounts = log(as.numeric(bird_df[,1]) + 1))
     
   # get summer and winter count lengths
   summer <- bird_df[which(bird_df$season == 'S'),]
@@ -121,7 +117,7 @@ jags_analysis <- function(bird_df){
                   parameters.to.save = params,
                   model.file = 'JAGS/cwac_ssm_migrant.jags',
                   n.chains = 3,
-                  n.iter = 10000,
+                  n.iter = 8000,
                   n.burnin = 5000,
                   n.thin = 1,
                   modules = c('glm','lecuyer', 'dic'),
@@ -135,39 +131,113 @@ jags_analysis <- function(bird_df){
   return(jag.mod)
 }
 
+jags_rare <- function(bird_df){
+  
+  bird_df[,1] <- log(as.numeric(bird_df[,1])) + 1
+  bird_df[is.na(bird_df)] <- 0
+  
+  bird_df$season[which(bird_df$season == "S")] <- 1
+  bird_df$season[which(bird_df$season == "W")] <- 2
+  
+  data <- list(y = bird_df[,1],
+               n = nrow(bird_df),
+               x = as.numeric(bird_df$season))
+  
+  params <- c('y', 'mu_t')
+  
+  model <- jags(data = data,
+                parameters.to.save = params,
+                model.file = 'JAGS/cwac_rare_resident.jags',
+                n.chains = 3,
+                n.iter = 8000,
+                n.burnin = 5000,
+                n.thin = 1,
+                modules = c('glm','lecuyer', 'dic'),
+                factories = NULL,
+                parallel = T,
+                n.cores = 3,
+                DIC = TRUE,
+                verbose = TRUE)
+  
+}
+
+jags_com <- function(bird_df){
+  
+  bird_df[,1] <- log(as.numeric(bird_df[,1])) + 1
+  bird_df[is.na(bird_df)] <- 0
+  
+  bird_df$season[which(bird_df$season == "S")] <- 1
+  bird_df$season[which(bird_df$season == "W")] <- 2
+  
+  data <- list(y = bird_df[,1],
+               n = nrow(bird_df),
+               x = as.numeric(bird_df$season))
+  
+  params <- c('y', 'mu_t')
+  
+  model <- jags(data = data,
+                parameters.to.save = params,
+                model.file = 'JAGS/cwac_com_resident.jags',
+                n.chains = 3,
+                n.iter = 8000,
+                n.burnin = 5000,
+                n.thin = 1,
+                modules = c('glm','lecuyer', 'dic'),
+                factories = NULL,
+                parallel = T,
+                n.cores = 3,
+                DIC = TRUE,
+                verbose = TRUE)
+  
+  
+}
+
 
 ts_jag_plot <- function(jag.model, bird_df, spec_type){
   
-  bird_df <- mutate(bird_df, logCounts = log(bird_df[,1] + 1))
+  bird_df <- mutate(bird_df, logCounts = log(as.numeric(bird_df[,1]) + 1))
+  #bird_df[is.na(bird_df)] <- 0
   
+  
+  # rare species
   if(spec_type == 1){
     
-    sEstimated <- jag.model$mean$mu_t
-    sLower <- jag.model$q2.5$mu_t
-    sUpper <- jag.model$q97.5$mu_t
+    ssm_df <- data.frame(estimate = jag.model$mean$mu_t,
+                         lower = jag.model$q2.5$mu_t,
+                         upper = jag.model$q97.5$mu_t,
+                         real = as.numeric(bird_df$logCounts))
     
-    ## Empty vectors to store the data
-    ssm_sim1 <- data.frame(Year = bird_df$startDate, 
-                           estimated = sEstimated,
-                           obs = bird_df$logCounts,
-                           lower = sLower,
-                           upper = sUpper,
-                           season = bird_df$season)
-    
-    ssm_sim1 <- arrange(ssm_sim1, Year)
-    
-    # plotting the observed and estimated population sizes produced by the state process
-    ggplot(ssm_sim1, aes(x = Year)) +
+    ggplot(ssm_df, aes(x = bird_df$startDate)) +
       geom_ribbon(aes(ymin = lower, ymax = upper), fill = "grey80") +
-      geom_line(aes(y = estimated, color = "grey50"), lwd = 1) +
-      geom_line(aes(y = obs, color = "red"), lwd = 1) +
-      scale_color_identity(guide = "legend",
-                           name = "Legend",
-                           labels = c("State process", "Observed")) + 
-      
-      labs(x = "Year",
-           y = "Population") +
-      facet_wrap(~ season, ncol = 1,)
+      geom_line(aes(y = estimate, color = "grey50"), lwd = 1) #+
+      #geom_line(aes(y = real, color = "red"), lwd = 1)
+    
+    # sEstimated <- jag.model$mean$mu_t
+    # sLower <- jag.model$q2.5$mu_t
+    # sUpper <- jag.model$q97.5$mu_t
+    # 
+    # ## Empty vectors to store the data
+    # ssm_sim1 <- data.frame(Year = bird_df$startDate, 
+    #                        estimated = sEstimated,
+    #                        obs = bird_df$logCounts,
+    #                        lower = sLower,
+    #                        upper = sUpper,
+    #                        season = bird_df$season)
+    # 
+    # ssm_sim1 <- arrange(ssm_sim1, Year)
+    # 
+    # # plotting the observed and estimated population sizes produced by the state process
+    # ggplot(ssm_sim1, aes(x = Year)) +
+    #   geom_ribbon(aes(ymin = lower, ymax = upper), fill = "grey80") +
+    #   geom_line(aes(y = estimated, color = "grey50"), lwd = 1) +
+    #   geom_line(aes(y = obs, color = "red"), lwd = 1) +
+    #   scale_color_identity(guide = "legend",
+    #                        name = "Legend",
+    #                        labels = c("State process", "Observed")) + 
+    #   
+    #   labs(x = "Year",
+    #        y = "Population") #+
+    #   #facet_wrap(~ season, ncol = 1,)
   }
   else if(spec_type == 2){
     
@@ -205,7 +275,7 @@ ts_jag_plot <- function(jag.model, bird_df, spec_type){
     # plotting the observed and estimated population sizes produced by the state process
   
     # summer
-    summer_plot <- ggplot(summerdf, aes(x = Year)) +
+    summer_plot <- ggplot(summerdf, aes(x = Year, group = 1)) +
       
       geom_ribbon(aes(ymin = lower, ymax = upper), fill = "gray80") +
       geom_line(aes(y = s_estimated, color = "grey1"), lwd = 1, lty = 2) +
@@ -220,7 +290,7 @@ ts_jag_plot <- function(jag.model, bird_df, spec_type){
       
       
     # winter
-    winter_plot <- ggplot(winterdf, aes(x = Year)) +
+    winter_plot <- ggplot(winterdf, aes(x = Year, group = 1)) +
       
       geom_ribbon(aes(ymin = lower, ymax = upper), fill = "grey80") +
       geom_line(aes(y = w_estimated, color = "gray1"), lwd = 1, lty = 2) +
@@ -266,19 +336,21 @@ hill_nums <- function(groupdf){
                     "winter" = winter)
   
   # variables to be tracked
-  params <- c("mu_t", "mu_wt", "sig.w2", "sig.eps2",
-              "sig.alpha", "beta", "lambda",
-              "summer_props", "winter_props",
-              "summer_n0", "winter_n0",
-              "summer_n1", "winter_n1",
-              "summer_n2", "winter_n2")
+  params <- c("mu_t", "mu_wt",
+              #"summer_props", "winter_props",
+              #"real_mu", "real_muw")
+               "summer_n0", "winter_n0",
+               "summer_n1", "winter_n1",
+               "summer_n2", "winter_n2")
+  
+  
   
   # run the model
   jag.mod <- jags(data = data_jags,
                   parameters.to.save = params,
                   model.file = 'JAGS/hillnum.jags',
                   n.chains = 3,
-                  n.iter = 10000,
+                  n.iter = 6000,
                   n.burnin = 5000,
                   n.thin = 1,
                   #modules = c('glm','lecuyer', 'dic'),
@@ -297,20 +369,20 @@ plot_hills <- function(jag.mod, years){
   # plotting shannons equitability instead of the actual shannons index
   # using exp for effective number of species (true diversity value)
   # shannons equ for summer
-  numSpecs <- log(ncol(jag.mod$mean$mu_t))
+  #numSpecs <- log(ncol(jag.mod$mean$mu_t))
   sn1_df <- data.frame(years = years,
-                      estimated = jag.mod$mean$summer_n1/numSpecs,
-                      lower = jag.mod$q2.5$summer_n1/numSpecs,
-                      upper = jag.mod$q97.5$summer_n1/numSpecs,
+                      #estimated = jag.mod$mean$summer_n1/numSpecs,
+                      #lower = jag.mod$q2.5$summer_n1/numSpecs,
+                      #upper = jag.mod$q97.5$summer_n1/numSpecs,
                       h = exp(jag.mod$mean$summer_n1),
                       lowerh = exp(jag.mod$q2.5$summer_n1),
                       upperh = exp(jag.mod$q97.5$summer_n1))
   
   # shannons equ for winter
   wn1_df <- data.frame(years = years,
-                       estimated = jag.mod$mean$winter_n1/numSpecs,
-                       lower = jag.mod$q2.5$winter_n1/numSpecs,
-                       upper = jag.mod$q97.5$winter_n1/numSpecs,
+                       #estimated = jag.mod$mean$winter_n1/numSpecs,
+                       #lower = jag.mod$q2.5$winter_n1/numSpecs,
+                       #upper = jag.mod$q97.5$winter_n1/numSpecs,
                        h = exp(jag.mod$mean$winter_n1),
                        lowerh = exp(jag.mod$q2.5$winter_n1),
                        upperh = exp(jag.mod$q97.5$winter_n1))
@@ -319,43 +391,43 @@ plot_hills <- function(jag.mod, years){
   # plotting 1/Simpsons index for true diversity value
   # simpsons index for summer
   sn2_df <- data.frame(years = years,
-                      estimated = jag.mod$mean$summer_n2,
-                      lower = jag.mod$q2.5$summer_n2,
-                      upper = jag.mod$q97.5$summer_n2)
+                      estimated = 1/jag.mod$mean$summer_n2,
+                      lower = 1/jag.mod$q2.5$summer_n2,
+                      upper = 1/jag.mod$q97.5$summer_n2)
   
   # simpsons index for winter
   wn2_df <- data.frame(years = years,
-                      estimated = jag.mod$mean$winter_n2,
-                      lower = jag.mod$q2.5$winter_n2,
-                      upper = jag.mod$q97.5$winter_n2)
+                      estimated = 1/jag.mod$mean$winter_n2,
+                      lower = 1/jag.mod$q2.5$winter_n2,
+                      upper = 1/jag.mod$q97.5$winter_n2)
   
   # create the plots
   sn1_plot <- ggplot(sn1_df, aes(x = years)) +
     
-    geom_ribbon(aes(ymin = lower, ymax = upper), fill = "gray80") +
-    geom_line(aes(y = estimated, color = "grey1"), lwd = 1, lty = 2) +
+    #geom_ribbon(aes(ymin = lower, ymax = upper), fill = "gray80") +
+    #geom_line(aes(y = estimated, color = "grey1"), lwd = 1, lty = 2) +
     geom_line(aes(y = h, color = 'red'), lwd = 1, lty = 1) +
     geom_line(aes(y = lowerh, colour = 'red'), lwd = 1, lty = 3) +
     geom_line(aes(y = upperh, colour = 'red'), lwd = 1, lty = 3) +
     
-    scale_color_identity(guide = "legend",
-                         name = "",
-                         labels = c("Equitability", "H")) +
+    # scale_color_identity(guide = "legend",
+    #                      name = "",
+    #                      labels = c("Equitability", "H")) +
     
     labs(title = "Shannons Index(S)")
   
   wn1_plot <- ggplot(wn1_df, aes(x = years)) +
     
-    geom_ribbon(aes(ymin = lower, ymax = upper), fill = "gray80") +
-    geom_line(aes(y = estimated, color = "grey1"), lwd = 1, lty = 2) +
+    #geom_ribbon(aes(ymin = lower, ymax = upper), fill = "gray80") +
+    #geom_line(aes(y = estimated, color = "grey1"), lwd = 1, lty = 2) +
     geom_line(aes(y = h, color = 'red'), lwd = 1, lty = 1) +
     
     geom_line(aes(y = lowerh, colour = 'red'), lwd = 1, lty = 3) +
     geom_line(aes(y = upperh, colour = 'red'), lwd = 1, lty = 3) +
     
-    scale_color_identity(guide = "legend",
-                         name = "",
-                         labels = c("Equitability", "H")) +
+    # scale_color_identity(guide = "legend",
+    #                      name = "",
+    #                      labels = c("Equitability", "H")) +
     
     labs(title = "Shannons Index (W)")
   
@@ -375,11 +447,17 @@ plot_hills <- function(jag.mod, years){
             sn2_plot, wn2_plot,
             ncol = 2, nrow = 2))
   
-  
-  
 }
 
-# Testing methods
-#hill <- hill_nums(counts)
-
-#plot_hills(hill, unique(counts$startDate))
+# # Testing methods
+# # how many counts per species
+# nas <- as.vector(apply(counts, 2, function(x){
+#   return(sum(!is.na(x)))
+# }))
+# 
+# counts <- counts[,nas>=6]
+# 
+# 
+# hill <- hill_nums(counts[1:50,])
+# 
+# plot_hills(hill, unique(counts$startDate)[1:25])

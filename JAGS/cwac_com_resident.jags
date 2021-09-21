@@ -1,3 +1,4 @@
+   
 # model for common resident species
 
 model{
@@ -35,6 +36,3 @@ model{
     
   }
 }
-
-
-
