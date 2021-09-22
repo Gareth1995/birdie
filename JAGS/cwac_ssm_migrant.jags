@@ -52,4 +52,8 @@ model {
     winter[w] ~ dnorm(mu_wt[w], tau.e) # winter counts
   }
   
+  # last 5 year difference
+  summerDif = mu_t[N]/mu_t[N-5]
+  winterDif = mu_wt[N]/mu_wt[N-5]
+  
 }

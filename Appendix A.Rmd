@@ -1,0 +1,102 @@
+---
+title: "Appendix A"
+subtitle: "Barberspan bird species boxplots"
+output:
+  pdf_document: default
+  html_notebook: default
+---
+
+# Barberspan bird species boxplots
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_chunk$set(message = FALSE)
+knitr::opts_chunk$set(results = 'hide')
+knitr::opts_chunk$set(warning = FALSE)
+knitr::opts_chunk$set(fig.keep = 'all')
+```
+
+## Residents
+```{r boxplots_resident}
+library(dplyr)
+
+# load relevant data
+load('data/robertsDB.RData')
+load('data/barberspan_counts.RData')
+
+birdcnts <- counts[,1:106]
+
+# separate into resident and migrant
+resid <- robertsDB %>%
+  filter(Migrant=="n") %>%
+  select(id)
+
+migid <- robertsDB %>%
+  filter(Migrant=="y") %>%
+  select(id)
+
+residents <- birdcnts[,resid$id]
+migrants <- birdcnts[,migid$id]
+
+# plot a grid of boxplots for the resident species
+par(mfrow = c(3,3))
+par(mar=c(1,2,2,1))
+for(i in 1:9){
+  boxplot(residents[,i], ylab = "Counts", main = colnames(residents)[i])
+}
+
+for(i in 10:18){
+  boxplot(residents[,i], ylab = "Counts", main = colnames(residents)[i])
+}
+
+for(i in 19:27){
+  boxplot(residents[,i], ylab = "Counts", main = colnames(residents)[i])
+}
+
+for(i in 28:36){
+  boxplot(residents[,i], ylab = "Counts", main = colnames(residents)[i])
+}
+
+for(i in 37:45){
+  boxplot(residents[,i], ylab = "Counts", main = colnames(residents)[i])
+}
+
+for(i in 46:54){
+  boxplot(residents[,i], ylab = "Counts", main = colnames(residents)[i])
+}
+
+for(i in 55:63){
+  boxplot(residents[,i], ylab = "Counts", main = colnames(residents)[i])
+}
+
+for(i in 64:72){
+  boxplot(residents[,i], ylab = "Counts", main = colnames(residents)[i])
+}
+
+```
+
+
+# Migrants
+```{r boxplots_migrant}
+
+# plot a grid of boxplots for the migrant species
+par(mfrow = c(3,3))
+par(mar=c(1,2,2,1))
+for(i in 1:9){
+  boxplot(migrants[,i], ylab = "Counts", main = colnames(migrants)[i])
+}
+
+for(i in 10:18){
+  boxplot(migrants[,i], ylab = "Counts", main = colnames(migrants)[i])
+}
+
+for(i in 19:27){
+  boxplot(migrants[,i], ylab = "Counts", main = colnames(migrants)[i])
+}
+
+for(i in 28:34){
+  boxplot(migrants[,i], ylab = "Counts", main = colnames(migrants)[i])
+}
+
+```
+

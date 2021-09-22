@@ -110,7 +110,9 @@ jags_analysis <- function(bird_df){
                     N = nrow(bird_df)/2)
     
   # variables to be tracked
-  params <- c('mu_t', 'mu_wt', 'lambda', 'beta', 'winter', 'summer')
+  params <- c('mu_t', 'mu_wt', 'lambda',
+              'beta', 'winter', 'summer',
+              'summerDif', 'winterDif')
     
   # running the model
   jag.mod <- jags(data = data_jags,
@@ -193,122 +195,81 @@ jags_com <- function(bird_df){
 }
 
 
-ts_jag_plot <- function(jag.model, bird_df, spec_type){
+ts_jag_plot <- function(jag.model, bird_df, title){
   
   bird_df <- mutate(bird_df, logCounts = log(as.numeric(bird_df[,1]) + 1))
   #bird_df[is.na(bird_df)] <- 0
+    
+  sEstimated <- jag.model$mean$mu_t
+  sLower <- jag.model$q2.5$mu_t
+  sUpper <- jag.model$q97.5$mu_t
+    
+  # separating the summer and winter counts
+  summer <- bird_df[which(bird_df$season == 'S'),]
+  winter <- bird_df[which(bird_df$season == 'W'),]
+    
+  # storing data in data frames
+  summerdf <- data.frame(Year = summer$startDate,
+                         s_estimated = sEstimated,
+                         s_counts = summer$logCounts,
+                         lower = sLower,
+                         upper = sUpper)
+  
+  lambda <- jag.model$mean$lambda
+  wEstimated <- jag.model$mean$mu_wt
+  wLower <- jag.model$q2.5$mu_wt
+  wUpper <- jag.model$q97.5$mu_wt
+  
+  winterdf <- data.frame(Year = winter$startDate, 
+                         lambda = lambda,
+                         w_estimated = wEstimated,
+                         w_counts = winter$logCounts,
+                         lower = wLower,
+                         upper = wUpper)
   
   
-  # rare species
-  if(spec_type == 1){
-    
-    ssm_df <- data.frame(estimate = jag.model$mean$mu_t,
-                         lower = jag.model$q2.5$mu_t,
-                         upper = jag.model$q97.5$mu_t,
-                         real = as.numeric(bird_df$logCounts))
-    
-    ggplot(ssm_df, aes(x = bird_df$startDate)) +
-      geom_ribbon(aes(ymin = lower, ymax = upper), fill = "grey80") +
-      geom_line(aes(y = estimate, color = "grey50"), lwd = 1) #+
-      #geom_line(aes(y = real, color = "red"), lwd = 1)
-    
-    # sEstimated <- jag.model$mean$mu_t
-    # sLower <- jag.model$q2.5$mu_t
-    # sUpper <- jag.model$q97.5$mu_t
-    # 
-    # ## Empty vectors to store the data
-    # ssm_sim1 <- data.frame(Year = bird_df$startDate, 
-    #                        estimated = sEstimated,
-    #                        obs = bird_df$logCounts,
-    #                        lower = sLower,
-    #                        upper = sUpper,
-    #                        season = bird_df$season)
-    # 
-    # ssm_sim1 <- arrange(ssm_sim1, Year)
-    # 
-    # # plotting the observed and estimated population sizes produced by the state process
-    # ggplot(ssm_sim1, aes(x = Year)) +
-    #   geom_ribbon(aes(ymin = lower, ymax = upper), fill = "grey80") +
-    #   geom_line(aes(y = estimated, color = "grey50"), lwd = 1) +
-    #   geom_line(aes(y = obs, color = "red"), lwd = 1) +
-    #   scale_color_identity(guide = "legend",
-    #                        name = "Legend",
-    #                        labels = c("State process", "Observed")) + 
-    #   
-    #   labs(x = "Year",
-    #        y = "Population") #+
-    #   #facet_wrap(~ season, ncol = 1,)
-  }
-  else if(spec_type == 2){
-    
-    sEstimated <- jag.model$mean$mu_t
-    sLower <- jag.model$q2.5$mu_t
-    sUpper <- jag.model$q97.5$mu_t
-    
-    # separating the summer and winter counts
-    summer <- bird_df[which(bird_df$season == 'S'),]
-    winter <- bird_df[which(bird_df$season == 'W'),]
-    
-    # storing data in data frames
-    summerdf <- data.frame(Year = summer$startDate,
-                           s_estimated = sEstimated,
-                           s_counts = summer$logCounts,
-                           lower = sLower,
-                           upper = sUpper)
-    
-    lambda <- jag.model$mean$lambda
-    wEstimated <- jag.model$mean$mu_wt
-    wLower <- jag.model$q2.5$mu_wt
-    wUpper <- jag.model$q97.5$mu_wt
-    
-    winterdf <- data.frame(Year = winter$startDate, 
-                           lambda = lambda,
-                           w_estimated = wEstimated,
-                           w_counts = winter$logCounts,
-                           lower = wLower,
-                           upper = wUpper)
-    
-    
-    summerdf <- arrange(summerdf, Year)
-    winterdf <- arrange(winterdf, Year)
-    
-    # plotting the observed and estimated population sizes produced by the state process
+  summerdf <- arrange(summerdf, Year)
+  winterdf <- arrange(winterdf, Year)
   
-    # summer
-    summer_plot <- ggplot(summerdf, aes(x = Year, group = 1)) +
-      
-      geom_ribbon(aes(ymin = lower, ymax = upper), fill = "gray80") +
-      geom_line(aes(y = s_estimated, color = "grey1"), lwd = 1, lty = 2) +
-      geom_line(aes(y = s_counts, color = "red"), lwd = 1 ) +
-      scale_color_identity(guide = "legend",
-                           name = "",
-                           labels = c("State process", "Log Counts")) +
-      labs(title = "Summer") +
-      theme(axis.title.x=element_blank(),
-            axis.title.y = element_blank()) 
+  # plotting the observed and estimated population sizes produced by the state process
+      # summer
+  summer_plot <- ggplot(summerdf, aes(x = Year, group = 1)) +
     
-      
-      
-    # winter
-    winter_plot <- ggplot(winterdf, aes(x = Year, group = 1)) +
-      
-      geom_ribbon(aes(ymin = lower, ymax = upper), fill = "grey80") +
-      geom_line(aes(y = w_estimated, color = "gray1"), lwd = 1, lty = 2) +
-      geom_line(aes(y = w_counts, color = "blue"), lwd = 1) +
-      scale_color_identity(guide = "legend",
-                           name = "",
-                           labels = c("Log Counts", "State Process")) +
-      labs(title = "Winter") +
-      theme(axis.title.x=element_blank(),
-            axis.title.y = element_blank())
-      
+    geom_ribbon(aes(ymin = lower, ymax = upper), fill = "gray80") +
+    geom_line(aes(y = s_estimated, color = "grey1"), lwd = 1, lty = 2) +
+    geom_line(aes(y = s_counts, color = "red"), lwd = 1 ) +
+    scale_color_identity(guide = "legend",
+                         name = "",
+                         labels = c("State process", "Log Counts")) +
+    labs(title = title,
+         subtitle = "Summer") +
+    theme(axis.title.x=element_blank(),
+          axis.title.y = element_blank(),
+          axis.text.x = element_text(angle = 90)) 
+  
     
-    grid.arrange(summer_plot, winter_plot,
-                 nrow = 2, heights = c(1/2, 1/2),
-                 left = "Log Population",
-                 bottom = "Year")
     
-  }
+  # winter
+  winter_plot <- ggplot(winterdf, aes(x = Year, group = 1)) +
+    
+    geom_ribbon(aes(ymin = lower, ymax = upper), fill = "grey80") +
+    geom_line(aes(y = w_estimated, color = "gray1"), lwd = 1, lty = 2) +
+    geom_line(aes(y = w_counts, color = "blue"), lwd = 1) +
+    scale_color_identity(guide = "legend",
+                         name = "",
+                         labels = c("Log Counts", "State Process")) +
+    labs(title = title,
+         subtitle = "Winter") +
+    theme(axis.title.x=element_blank(),
+          axis.title.y = element_blank(),
+          axis.text.x = element_text(angle = 90))
+    
+  
+  grid.arrange(summer_plot, winter_plot,
+               nrow = 2, heights = c(1/2, 1/2),
+               left = "Log Population",
+               bottom = "Year")
+  
 }
 
 #### hill numbers jags test ####
