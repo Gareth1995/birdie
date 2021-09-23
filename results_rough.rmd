@@ -22,6 +22,20 @@ library(vegan)
 # load relevant data
 load('data/robertsDB.RData')
 load('data/barberspan_counts.RData')
+
+birdcnts <- counts[,1:106]
+
+# separate into resident and migrant
+resid <- robertsDB %>%
+  filter(Migrant=="n") %>%
+  select(id)
+
+migid <- robertsDB %>%
+  filter(Migrant=="y") %>%
+  select(id)
+
+residents <- birdcnts[,resid$id]
+migrants <- birdcnts[,migid$id]
 ```
 
 # Results
@@ -30,18 +44,18 @@ This study takes into account 3 objectives. These 3 objectives, in short, are to
 
 ## Exploratory Data Analysis (EDA)
 
-The CWAC dataset contains bird counts from various wetlands across South Africa. The counts normally occur biannually, once during the summer and once during the winter. Only the Barberspan wetland has been used for this report. There are bird counts ranging from the year 1993 all the way to 2018 in the Barberspan records. The original dataset omitted the years where no counters reported any counts. These years were inserted into the dataset with NA values representing the bird counts for those years. This was done for the sake of completeness and for the benefit of the state space models. 
+The CWAC dataset contains bird counts from various wetlands across South Africa. The counts normally occur biannually, once during the summer and once during the winter. Only the Barberspan wetland has been used for this report. There are bird counts ranging from the year 1993 to 2018 in the Barberspan records. The original dataset omitted the years where no counters reported any count records. These years were inserted into the dataset with NA values representing the bird counts for those years. This was done for the sake of completeness and for the benefit of the state space models. 
 
-The resident and migratory species have been analysed separately to account for their differences in migratory patterns. These patterns may present themselves in the data. For example, we would likely see greater fluctuation in the migratory bird counts over the years compared to the resident species, whose counts would stay relatively stable throughout the year.
+The resident and migratory species have been analysed separately to account for their differences in migratory patterns. These patterns may present themselves in the data. For example, we would likely see greater fluctuation in the migratory bird counts over the years compared to the resident species, whose counts would stay relatively stable throughout the year. Furthermore, in figure (last boxplot) it shows there are significantly more resident species than migrant species. Analysing the residents and migrants separately mitigates the problem of the resident species dominating the analysis. It allows a more clear picture of the population dynamics of each species type.
 
-Below (probably will put in an appendix) we see boxplots for each bird species in the Barberspan wetland. 
+Boxplots for each bird species in the Barberspan records are present in Appendix A. 
 
 ```{r EDA, fig.cap="Resident species boxplots"} 
 
 resnas <- as.vector(apply(residents, 2, function(x){
   return(sum(!is.na(x)))
 }))
-rareres <- sum(resnas<6)
+rareres <- sum(resnas<=4)
 
 ```
 
@@ -53,24 +67,25 @@ mignas <- as.vector(apply(migrants, 2, function(x){
   return(sum(!is.na(x)))
 }))
 
-raremig <- sum(mignas<6)
+raremig <- sum(mignas<=4)
 
 ```
 
-There are a considerable amount of species that contain fewer than 6 counts. These species are considered rare in this study. In total there are `r rareres+raremig` rare species in Barberspan. `r rareres` rare resident species and `r raremig` rare migrant species. These species may not be certified rare species but are categorised this way in this study based on the data alone. The fact that there are so many species with few counts could be attributed to many factors that will be discussed in later sections. Below is a bar plot showing the number of counts each species in Barberspan contains.
+There are a considerable amount of species that contain relatively few counts (fewer than or equal to 4 counts). It's thus evident that these species were poorly observed. In total there are `r rareres+raremig` species with 4 or fewer counts in Barberspan. `r rareres` resident species contain 4 or fewer counts and `r raremig` migrant species contain 4 or fewer counts. 
 
 
 ```{r EDA3}
 # produce a histgram of NA values for each species in Barberspan
-nas <- as.vector(apply(birdcnts, 2, function(x){
-  return(sum(is.na(x)))
-}))
+# nas <- as.vector(apply(birdcnts, 2, function(x){
+#   return(sum(is.na(x)))
+# }))
+# 
+# barplot(nas)
 
-barplot(nas)
 
 ```
 
-Further exploration is conducted with each year as a focal point. Below we see a bar plot with total counts in each year. There are some years where there are no counts for any species. The time periods with no bird counts are as follows: The winter of 1995, the winter of 1996 till the winter of 1998, the winter of 2007, the winter of 2010 till the winter of 2014, the summer of 2016 till the winter of 2017 and the winter of 2018. In total there are 21 different time periods that contain no counts. This is largely due to the fact that years were inserted into the original dataset to create a continuous time period from 1993 till 2018.
+Further exploration is conducted with each year as a focal point. Below we see a bar plot with total counts in each year. There are some years where there are no counts for any species. The time periods with no bird counts are as follows: The winter of 1995, the winter of 1996 till the winter of 1998, the winter of 2007, the winter of 2010 till the winter of 2014, the summer of 2016 till the winter of 2017 and the winter of 2018. In total, out of the 52 time periods, there are 21 that contain no counts. This is due to the fact that years were inserted into the original dataset to create a continuous time period from 1993 till 2018.
 
 ```{r EDA4}
 
@@ -79,6 +94,7 @@ barplot(totalcnts)
 
 ```
 
+The Boxplot below shows the distribution of the resident and migratoy species in Barberspan. There are significantly more resident species than migratory species in Barberspan. For this reason the state space model used to model the population dynamics is applied to resident and migrants separately. Furthermore, the bioindicators will also be applied to the resident and migrant species separately to capture a more in depth understanding of the population dynamics in Barberspan.
 
 ```{r EDA5}
 # 2 boxplots showing the resident species and the migrant species in Barberspan
@@ -92,21 +108,19 @@ boxplot(totmigcnts, main = "Migratory species")
 
 ```
 
-The Boxplot above shows the distribution of the resident and migratoy species in Barberspan. There are significantly more resident species than migratory species in Barberspan. There may be various reasons for this that will be discussed later. 
-
 ## State Space Time Series Model
 
 ### Model Selection
 
-State space time series models were used to model the bird counts across the years and seasons. Two different models were considered, a model for resident species and a model for migratory species.
+State space time series models were used to model the Barberspan bird species population dynamics across the years and seasons. Two different models were considered, a model for resident species and a model for migratory species.
 
-The migrant and resident models were applied to both residents and migrants. This was to monitor the DIC to identify which model worked best and if, perhaps, it was beneficial to use one model for both species. Below is shown a table with the various models applied to the various types of species and their corresponding DIC scores. Deviance information criterion (DIC) is commonly used for Bayesian models that produce MCMC output. DIC is the AIC equivalent in a frequentist context. DIC is similar to AIC in that it takes into account how well the model fits the data and the model complexity and finds a balance between the two. The benefit of DIC, in the Bayesian context, is that it takes prior information into account whereas AIC doesn't (ref: DIC_theroy.pdf).
+The migrant and resident models were applied to both residents and migrants. This was to monitor the DIC to identify which model worked best and if, perhaps, it was beneficial to use one model for both species. Below is shown a table with the various models applied to the various types of species and their corresponding DIC scores. Deviance information criterion (DIC) is commonly used for Bayesian model selection. DIC is the AIC equivalent in a frequentist context. DIC is similar to AIC in that it takes into account how well the model fits the data and the model complexity and finds a balance between the two. The benefit of DIC, in the Bayesian context, is that it takes prior information into account whereas AIC doesn't (ref: DIC_theroy.pdf).
 
 ```{r dicTable}
 
 # run resident model on all resident species
 res.jags <- list()
-com.res <- residents[,resnas>6]
+com.res <- residents[,resnas>4]
 
 for(i in 1:length(com.res)){
   res.jags[[i]] <- jags_com(as.data.frame(cbind(com.res[,i],
@@ -136,7 +150,7 @@ mres.dics <- mean(unlist(migdics))
 
 # run resident model on all migrants
 mig2.jags <- list()
-com.mig <- migrants[,mignas>6]
+com.mig <- migrants[,mignas>4]
 
 for(i in 1:length(com.mig)){
   mig2.jags[[i]] <- jags_com(as.data.frame(cbind(com.mig[,i],
@@ -189,7 +203,7 @@ After the best model was selected it was applied to the data. First the model wa
 # tallying counts for overall analysis of barberspan
 
 # residents
-allresidents <- apply(residents, 1, sum, na.rm = T)
+allresidents <- apply(residents[,resnas>4], 1, sum, na.rm = T)
 allresidents <- as.data.frame(cbind(allresidents,
                                  'season' = counts$season,
                                  'startDate' = counts$startDate))
@@ -198,7 +212,7 @@ allresidents[allresidents==0] <- NA
 allresidents$allresidents <- as.numeric(allresidents$allresidents)
 
 # migrants
-allmigrants <- apply(migrants, 1, sum, na.rm = T)
+allmigrants <- apply(migrants[,mignas>4], 1, sum, na.rm = T)
 allmigrants <- as.data.frame(cbind(allmigrants,
                                  'season' = counts$season,
                                  'startDate' = counts$startDate))
@@ -217,11 +231,13 @@ ts_jag_plot(bspan.migrants, allmigrants, "migrants")
 
 
 ```
-The analysis has been divided into summer and winter to account for observation errors. Bird counters are more likely to be more active during summer months than winter months. The visibility in summer will also be better than in winter. The resident population in the Barberspan region remains fairly stable over the years for the winter months, whereas there is a positive trend in the summer counts of the resident species. (identify if trend is significant). The migrant species display an increasing trend from 1993 till around 2015. After which a change in trend is experienced.
+The analysis has been divided into summer and winter to account for observation errors. Bird counters are more likely to be more active during summer months than winter months. The visibility in summer will also be better than in winter.
 
-Another interesting point to note is that the resident counts for summer and winter are fairly similar, whereas the migrant counts for summer are greater than winter (on average). It's interesting given that the migratory species normally winter in South Africa so one would expect to see more migrant species in winter than in summer. This could be a result of observation error and will be discussed later in the report.
+Both the resident and migrant populations in the Barberspan region show positive trends in the summer counts. These trends, however, are not significant. From 1993 to 2018 there is an average rate of change of [`r mean(bspan.residents$q2.5$beta)`, `r mean(bspan.residents$q97.5$beta)`] for the resident summer counts and [`r mean(bspan.migrants$q2.5$beta)`, `r mean(bspan.migrants$q97.5$beta)`] for the migrant summer counts. (Explain why only summer slope is considered in the model in methods section - Summer is underlying population and proportion of population stay over in winter)
 
+An interesting point to note is that the resident counts for summer and winter are fairly similar, whereas the migrant counts for summer are, on average, greater than winter. It's interesting given that the migratory species normally winter in South Africa so one would expect to see more migrant species in winter than in summer. This could be a result of observation error and will be discussed later in the report.
 
+// discuss individual species trends and which are significant. Note which species are increasing more rapidly than others(for resident and migrant). 
 
 
 

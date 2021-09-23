@@ -237,7 +237,7 @@ ts_jag_plot <- function(jag.model, bird_df, title){
     
     geom_ribbon(aes(ymin = lower, ymax = upper), fill = "gray80") +
     geom_line(aes(y = s_estimated, color = "grey1"), lwd = 1, lty = 2) +
-    geom_line(aes(y = s_counts, color = "red"), lwd = 1 ) +
+    geom_point(aes(y = s_counts, color = "red")) +
     scale_color_identity(guide = "legend",
                          name = "",
                          labels = c("State process", "Log Counts")) +
@@ -254,11 +254,11 @@ ts_jag_plot <- function(jag.model, bird_df, title){
     
     geom_ribbon(aes(ymin = lower, ymax = upper), fill = "grey80") +
     geom_line(aes(y = w_estimated, color = "gray1"), lwd = 1, lty = 2) +
-    geom_line(aes(y = w_counts, color = "blue"), lwd = 1) +
+    geom_point(aes(y = w_counts, color = "blue")) +
     scale_color_identity(guide = "legend",
                          name = "",
                          labels = c("Log Counts", "State Process")) +
-    labs(title = title,
+    labs(title = "",
          subtitle = "Winter") +
     theme(axis.title.x=element_blank(),
           axis.title.y = element_blank(),

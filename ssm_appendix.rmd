@@ -1,0 +1,114 @@
+---
+title: "Appendix B"
+subtitle: "State-Space Time Series OUtput"
+output:
+  pdf_document: default
+  html_notebook: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_chunk$set(message = FALSE)
+knitr::opts_chunk$set(results = 'hide')
+knitr::opts_chunk$set(warning = FALSE)
+knitr::opts_chunk$set(fig.keep = 'all')
+source("R/cwac_functions.r")
+```
+
+# Residents
+
+```{r individual_ssm}
+library(dplyr)
+
+# load relevant data
+load('data/robertsDB.RData')
+load('data/barberspan_counts.RData')
+
+birdcnts <- counts[,1:106]
+
+# separate into resident and migrant
+resid <- robertsDB %>%
+  filter(Migrant=="n") %>%
+  select(id, `Common name`)
+
+migid <- robertsDB %>%
+  filter(Migrant=="y") %>%
+  select(id, `Common name`)
+
+residents <- birdcnts[,resid$id]
+migrants <- birdcnts[,migid$id]
+
+colnames(residents) <- resid$`Common name`
+colnames(migrants) <- migid$`Common name`
+
+rescnts <- as.vector(apply(residents, 2, function(x){
+  return(sum(!is.na(x)))
+}))
+
+
+migcnts <- as.vector(apply(migrants, 2, function(x){
+  return(sum(!is.na(x)))
+}))
+
+residents <- residents[,rescnts>4]
+migrants <- migrants[,migcnts>4]
+
+res.jags <- list()
+mig.jags <- list()
+
+for (i in 1:length(residents)){
+  res.jags[[i]] <- jags_analysis(as.data.frame(cbind(residents[,i],
+                                          'season' = counts$season,
+                                          'startDate' = counts$startDate)))
+}
+
+
+
+```
+
+```{r ssm_plots}
+
+negs <- 0
+pos <- 0
+numsigs <- 0
+for(i in 1:length(res.jags)){
+  
+  # Check to see if positive or negative trend
+  
+  meanb <- mean(res.jags[[i]]$mean$beta)
+  
+  if(meanb<0){
+    negs <- negs+1
+  }else{
+    pos <- pos+1
+  }
+  
+  
+  # check if trend is significant
+  lb <- mean(res.jags[[i]]$q2.5$beta)
+  ub <- mean(res.jags[[i]]$q97.5$beta)
+  
+  
+  # is significant
+  if((lb>0 & ub>0) | (lb<0 & ub<0)){
+    numsigs <- numsigs+1
+    ts_jag_plot(res.jags[[i]], 
+              as.data.frame(cbind(residents[,i],
+                                  'season' = counts$season,
+                                  'startDate' = counts$startDate)),
+              paste(colnames(residents)[i], "**"))
+  }else{
+    ts_jag_plot(res.jags[[i]], 
+              as.data.frame(cbind(residents[,i],
+                                  'season' = counts$season,
+                                  'startDate' = counts$startDate)),
+              colnames(residents)[i])
+  }
+  
+}
+
+```
+
+# Migrants
+
+
