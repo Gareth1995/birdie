@@ -17,7 +17,7 @@ source("R/cwac_functions.r")
 
 # Residents
 
-```{r individual_ssm}
+```{r individual_residents}
 library(dplyr)
 
 # load relevant data
@@ -54,7 +54,6 @@ residents <- residents[,rescnts>4]
 migrants <- migrants[,migcnts>4]
 
 res.jags <- list()
-mig.jags <- list()
 
 for (i in 1:length(residents)){
   res.jags[[i]] <- jags_analysis(as.data.frame(cbind(residents[,i],
@@ -66,16 +65,19 @@ for (i in 1:length(residents)){
 
 ```
 
-```{r ssm_plots}
+
+```{r resident_plots}
 
 negs <- 0
 pos <- 0
 numsigs <- 0
+betas <- c()
 for(i in 1:length(res.jags)){
   
   # Check to see if positive or negative trend
   
   meanb <- mean(res.jags[[i]]$mean$beta)
+  betas <- c(betas, meanb)
   
   if(meanb<0){
     negs <- negs+1
@@ -96,13 +98,13 @@ for(i in 1:length(res.jags)){
               as.data.frame(cbind(residents[,i],
                                   'season' = counts$season,
                                   'startDate' = counts$startDate)),
-              paste(colnames(residents)[i], "**"))
+              paste(colnames(residents)[i], "*"))
   }else{
     ts_jag_plot(res.jags[[i]], 
               as.data.frame(cbind(residents[,i],
                                   'season' = counts$season,
                                   'startDate' = counts$startDate)),
-              colnames(residents)[i])
+              paste(colnames(residents)[i]))
   }
   
 }
@@ -111,4 +113,59 @@ for(i in 1:length(res.jags)){
 
 # Migrants
 
+```{r individual_migrants}
+mig.jags <- list()
+
+for (i in 1:length(migrants)){
+  mig.jags[[i]] <- jags_analysis(as.data.frame(cbind(migrants[,i],
+                                          'season' = counts$season,
+                                          'startDate' = counts$startDate)))
+}
+
+```
+
+```{r migrant_plots}
+
+negs_m <- 0
+pos_m <- 0
+numsigs_m <- 0
+betas_m <- c()
+for(i in 1:length(mig.jags)){
+  
+  # Check to see if positive or negative trend
+  
+  meanb_m <- mean(mig.jags[[i]]$mean$beta)
+  betas_m <- c(betas_m, meanb_m)
+  
+  if(meanb_m<0){
+    negs_m <- negs_m+1
+  }else{
+    pos_m <- pos_m+1
+  }
+  
+  
+  # check if trend is significant
+  lb_m <- mean(mig.jags[[i]]$q2.5$beta)
+  ub_m<- mean(mig.jags[[i]]$q97.5$beta)
+  
+  
+  # is significant
+  if((lb_m>0 & ub_m>0) | (lb_m<0 & ub_m<0)){
+    numsigs_m <- numsigs_m+1
+    ts_jag_plot(mig.jags[[i]], 
+              as.data.frame(cbind(migrants[,i],
+                                  'season' = counts$season,
+                                  'startDate' = counts$startDate)),
+              paste(colnames(migrants)[i], "**"))
+  }else{
+    ts_jag_plot(mig.jags[[i]], 
+              as.data.frame(cbind(migrants[,i],
+                                  'season' = counts$season,
+                                  'startDate' = counts$startDate)),
+              paste(colnames(migrants)[i]))
+  }
+  
+}
+
+```
 

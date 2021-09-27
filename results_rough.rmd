@@ -18,6 +18,7 @@ knitr::opts_chunk$set(fig.keep = 'all')
 source("R/cwac_functions.r")
 library(knitr)
 library(vegan)
+library(tidyverse)
 
 # load relevant data
 load('data/robertsDB.RData')
@@ -44,11 +45,9 @@ This study takes into account 3 objectives. These 3 objectives, in short, are to
 
 ## Exploratory Data Analysis (EDA)
 
-The CWAC dataset contains bird counts from various wetlands across South Africa. The counts normally occur biannually, once during the summer and once during the winter. Only the Barberspan wetland has been used for this report. There are bird counts ranging from the year 1993 to 2018 in the Barberspan records. The original dataset omitted the years where no counters reported any count records. These years were inserted into the dataset with NA values representing the bird counts for those years. This was done for the sake of completeness and for the benefit of the state space models. 
+The CWAC dataset contains bird counts from various wetlands across South Africa. The counts normally occur biannually, once during the summer and once during the winter. Only the Barberspan wetland has been used for this report. There are bird counts ranging from the year 1993 to 2018 in the CWAC records for the Barberspan wetland. The original dataset omitted the years where no counters reported any count records. These years were inserted into the dataset with NA values representing the bird counts for those years. This was done for the sake of completeness and for the benefit of the state space models. 
 
-The resident and migratory species have been analysed separately to account for their differences in migratory patterns. These patterns may present themselves in the data. For example, we would likely see greater fluctuation in the migratory bird counts over the years compared to the resident species, whose counts would stay relatively stable throughout the year. Furthermore, in figure (last boxplot) it shows there are significantly more resident species than migrant species. Analysing the residents and migrants separately mitigates the problem of the resident species dominating the analysis. It allows a more clear picture of the population dynamics of each species type.
-
-Boxplots for each bird species in the Barberspan records are present in Appendix A. 
+The resident and migratory species have been analysed separately to account for their differences in migratory patterns. These patterns may present themselves in the data. For example, we would likely see greater fluctuation in the migratory bird counts over the years compared to the resident species, whose counts could stay relatively stable throughout the year. Furthermore, in figure (last boxplot) it shows there are significantly more resident species than migrant species. Analysing the residents and migrants separately mitigates the problem of the resident species dominating the analysis. It allows a more clear picture of the population dynamics of each species type. Boxplots for each bird species in the Barberspan records are present in Appendix A. 
 
 ```{r EDA, fig.cap="Resident species boxplots"} 
 
@@ -71,7 +70,7 @@ raremig <- sum(mignas<=4)
 
 ```
 
-There are a considerable amount of species that contain relatively few counts (fewer than or equal to 4 counts). It's thus evident that these species were poorly observed. In total there are `r rareres+raremig` species with 4 or fewer counts in Barberspan. `r rareres` resident species contain 4 or fewer counts and `r raremig` migrant species contain 4 or fewer counts. 
+There are a considerable amount of species that contain relatively few counts (fewer than or equal to 4 counts). These species were poorly observed and couldn't be used in the analysis as the model outcomes would not be reliable. The margins of error in the model would be too large. In total there are `r rareres+raremig` species with 4 or fewer counts in Barberspan. `r rareres` resident species contain 4 or fewer counts and `r raremig` migrant species contain 4 or fewer counts. 
 
 
 ```{r EDA3}
@@ -90,11 +89,21 @@ Further exploration is conducted with each year as a focal point. Below we see a
 ```{r EDA4}
 
 totalcnts <- apply(birdcnts, 1, sum, na.rm = T)
-barplot(totalcnts)
+totalcnts <- as.data.frame(cbind("Counts"=totalcnts,
+                                 "Years"=counts$startDate))
+
+ggplot(totalcnts, aes(x=Years, y=Counts))+
+  geom_bar(stat='identity') +
+  labs(title = "Total Counts per Year") +
+  scale_x_continuous("Years",
+                     labels = as.character(counts$startDate),
+                     breaks = as.numeric(counts$startDate)) +
+  theme(axis.text.x = element_text(angle = 90))
+  
 
 ```
 
-The Boxplot below shows the distribution of the resident and migratoy species in Barberspan. There are significantly more resident species than migratory species in Barberspan. For this reason the state space model used to model the population dynamics is applied to resident and migrants separately. Furthermore, the bioindicators will also be applied to the resident and migrant species separately to capture a more in depth understanding of the population dynamics in Barberspan.
+The Boxplot below shows the overall population distribution of the resident and migratoy species in Barberspan. There are significantly more resident species than migratory species in Barberspan. For this reason the state space model used to model the population dynamics is applied to resident and migrants separately. Furthermore, the bioindicators will also be applied to the resident and migrant species separately to capture a more in depth understanding of the population dynamics in Barberspan.
 
 ```{r EDA5}
 # 2 boxplots showing the resident species and the migrant species in Barberspan
@@ -103,8 +112,8 @@ totrescnts <- apply(residents, 1, sum, na.rm = T)
 totmigcnts <- apply(migrants, 1, sum, na.rm = T)
 
 par(mfrow=c(1,2))
-boxplot(totrescnts, main = "Resident species")
-boxplot(totmigcnts, main = "Migratory species")
+boxplot(totrescnts, main = "Resident species", ylab = "counts")
+boxplot(totmigcnts, main = "Migratory species", ylab = "counts")
 
 ```
 
@@ -194,7 +203,7 @@ kable(jag.tab, digits = 2,
 
 It's clear that the migrant model performs better on both the resident and migratory species, according to the DIC values. Based on these results the migrant model is used on all the species in the dataset.
 
-### State Space Model
+### State Space Model Output
 
 After the best model was selected it was applied to the data. First the model was applied to each species individually then to the combined counts. Below is the combined bird count trend for Barberspan. The trends produced for each individual bird species are in appendix B.
 
@@ -233,18 +242,107 @@ ts_jag_plot(bspan.migrants, allmigrants, "migrants")
 ```
 The analysis has been divided into summer and winter to account for observation errors. Bird counters are more likely to be more active during summer months than winter months. The visibility in summer will also be better than in winter.
 
-Both the resident and migrant populations in the Barberspan region show positive trends in the summer counts. These trends, however, are not significant. From 1993 to 2018 there is an average rate of change of [`r mean(bspan.residents$q2.5$beta)`, `r mean(bspan.residents$q97.5$beta)`] for the resident summer counts and [`r mean(bspan.migrants$q2.5$beta)`, `r mean(bspan.migrants$q97.5$beta)`] for the migrant summer counts. (Explain why only summer slope is considered in the model in methods section - Summer is underlying population and proportion of population stay over in winter)
+Both the resident and migrant populations in the Barberspan region show positive trends in the summer counts. These trends, however, are not significant. From 1993 to 2018 there is an average rate of change of [`r mean(bspan.residents$q2.5$beta)`, `r mean(bspan.residents$q97.5$beta)`] for the resident summer counts and [`r mean(bspan.migrants$q2.5$beta)`, `r mean(bspan.migrants$q97.5$beta)`] for the migrant summer counts.
 
 An interesting point to note is that the resident counts for summer and winter are fairly similar, whereas the migrant counts for summer are, on average, greater than winter. It's interesting given that the migratory species normally winter in South Africa so one would expect to see more migrant species in winter than in summer. This could be a result of observation error and will be discussed later in the report.
 
-// discuss individual species trends and which are significant. Note which species are increasing more rapidly than others(for resident and migrant). 
+Appendix B shows the state space models applied to the individual bird species. When considering average trends from 1993 to 2018, 29 out of the 53 resident species analysed in Barberspan show positive trends. The other 24 exhibit negative trends. However, none of these trends are statistically significant. The 4 bird species showing the strongest increasing trends are the Southern Pochard, Black-necked Grebe, White-faced Duck and the Common Moorhen. The four strongest decreasing trends are attributed to the African Jacana, Na.2, White-Billed duck and the Marsh Owl.
+
+The migrants species display more negative trends than positive. 11 out of the 17 analysed migrant species exhibit decreasing trends while only 6 display positive trends. The Hottentot Teal, Common Greenshank, Common black-headed GUll and the Marsh Sandpiper are the 4 species with the strongest negative trend. The Whiskered Tern, Little Stint, Curlew Sandpiper, Common Sandpiper, Common Ringed Plover and Black Crake are the only migrant species in Barberspan that display a positive trend. These trends are subject to high levels of uncertainty especially for the species with comparatively few counts. 
+
+## Bioindicators
+
+The underlying levels of the state space models, once generated, are assumed to be the "true" underlying population of the analysed bird species. Bioindicators are formulated using these values. The indicators used here are the Simpson's index and the exponentiated Shannon's index. The Simpson's index provides a value representing the eveness of the ecosystem. The value of the Simpson's index varies from 0 to 1. 0 being very little eveness and 1 being perfect eveness. The exponentiated Shannon index gives the value of the effective number of species in an ecosystem. Below are graphs showing the Shannon and Simpson index each year for Barberspan.
+
+```{r shansimp}
+
+#residents in summer
+res.summer <- lapply(res.jags, function(x){
+    return(exp(x$mean$mu_t))
+  })
+# residents in winter
+res.winter <- lapply(res.jags, function(x){
+    return(exp(x$mean$mu_wt))
+  })
+
+# Shannon index
+shan.res.sum <- exp(diversity(as.data.frame(res.summer), index = "shannon"))
+shan.res.win <- exp(diversity(as.data.frame(res.winter), index = "shannon"))
+
+# Simpson index
+simp.res.sum <- diversity(as.data.frame(res.summer), index = "simpson")
+simp.res.win <- diversity(as.data.frame(res.winter), index = "simpson")
+
+
+# migrants in summer
+mig.summer <- lapply(mig.jags, function(x){
+    return(exp(x$mean$mu_t))
+  })
+# migrants in winter
+mig.winter <- lapply(mig.jags, function(x){
+    return(exp(x$mean$mu_wt))
+  })
+
+# shannon index
+shan.mig.sum <- exp(diversity(as.data.frame(mig.summer), index = "shannon"))
+shan.mig.win <- exp(diversity(as.data.frame(mig.winter), index = "shannon"))
+
+# simpson index
+simp.mig.sum <- diversity(as.data.frame(mig.summer), index = "simpson")
+simp.mig.win <- diversity(as.data.frame(mig.winter), index = "simpson")
+
+```
+
+```{r plotInd}
+
+shannondf <- as.data.frame(cbind("resident summer" = shan.res.sum,
+                   "resident winter" = shan.res.win,
+                   "migrant summer" = shan.mig.sum,
+                   "migrant winter" = shan.mig.win,
+                   "years" = unique(counts$startDate)))
+shannondf <- shannondf %>%
+  select(years, everything()) %>%
+  gather(key = "Legend", value = "value", -years)
+
+shan.plot <- ggplot(shannondf, aes(x=years, y=value)) +
+  geom_line(aes(color = Legend, linetype = Legend)) +
+  scale_colour_manual(values = c('darkred', 'steelblue', 'green', 'black'))+
+  labs(title = "Exponentiated Shannon Index",
+       x = "Years", y = "Index") +
+  scale_x_continuous("Years",
+                     labels = as.character(unique(counts$startDate)),
+                     breaks = as.numeric(unique(counts$startDate))) +
+  theme(axis.text.x = element_text(angle = 90))
+
+simpdf <- as.data.frame(cbind("resident summer" = simp.res.sum,
+                   "resident winter" = simp.res.win,
+                   "migrant summer" = simp.mig.sum,
+                   "migrant winter" = simp.mig.win,
+                   "years" = unique(counts$startDate)))
+
+simpdf <- simpdf %>%
+  select(years, everything()) %>%
+  gather(key = "Legend", value = "value", -years)
+
+simp.plot <- ggplot(simpdf, aes(x=years, y=value)) +
+  geom_line(aes(color = Legend, linetype = Legend)) +
+  scale_colour_manual(values = c('darkred', 'steelblue', 'green', 'black'))+
+  labs(title = "Simpson Index",
+       x = "Years", y = "Index") +
+  scale_x_continuous("Years",
+                     labels = as.character(unique(counts$startDate)),
+                     breaks = as.numeric(unique(counts$startDate))) +
+  theme(axis.text.x = element_text(angle = 90))
+
+plot_grid(shan.plot, simp.plot, nrow = 2, ncol = 1)
 
 
 
+```
 
+The Shannon and Simpson indices fluctuate often each year. Especially for the resident species. However, it's evident that there is an overall decrease in biodiversity from 1993 compared to 2018 for both resident and migrant species. The Shannon index shows a greater effective number of species in 1993 compared to 2018 and the Simpson index shows a higher degree of eveness in 1993 compared to 2018 for the Barberspan wetland. Despite the dip experienced in 2007, the migrant species diversity is more even and stable over the years compared to the residents. The migrant species in winter display a relatively high Simpson index value across the years. Which indicate that the migrant species population remains fairly even over the years. This doesn't indicate that the migrant species are thriving in the Barberspan ecosystem. The eveness is what remains fairly constant. This means that if the migrant population is decreasing in Barberspan, all the migrant species are decreasing at a similar rate.
 
-
-
+Some years display relatively low degrees of biodiversity followed by recovery periods. The resident species suffers a decline in biodiversity from 1997 till around 2002. The resident species biodiversity then recovers. Around 2008 there's another drop in biodiversity but this time affecting the migrant species in the summer and the resident species in the winter. Toward the end of 2017 and the beginning of 2018, only the resident species in the summer appear to be experiencing an increase in biodiversity. Residents in the summer, migrants in the winter and migrants in the summer appear to be experiencing a decrease in biodiversity.
 
 
 
